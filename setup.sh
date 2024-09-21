@@ -5,7 +5,11 @@
 # Exit immediately if a command exits with a non-zero status
 set -e
 # Set installation directory
+GEONODE_PASSWORD="geonode"
+GEONODE_DATA_PASSWORD="geonode_data"
+GEOSERVER_ADMIN_PASSWORD="geoserver"
 INSTALL_DIR="/home/taufiq/Documents"
+
 mkdir -p "$INSTALL_DIR"
 echo "=========================INSTALL_DIR: $INSTALL_DIR ========================= "
 cd "$INSTALL_DIR"
@@ -26,7 +30,7 @@ echo "========================= Updating package lists... ======================
 apt-get update
 
 # Install required packages
-REQUIRED_PACKAGES=("curl" "git" "python3" "ca-certificates" "gnupg" "lsb-release")
+REQUIRED_PACKAGES=("curl" "git" "python3" "ca-certificates" "gnupg" "lsb-release" "nodejs" "npm")
 for PACKAGE in "${REQUIRED_PACKAGES[@]}"; do
     if ! command_exists "$PACKAGE"; then
         echo "========================= Installing $PACKAGE... ========================="
@@ -81,11 +85,7 @@ else
     echo "========================= .env file already exists. ========================="
 fi
 
-# Prompt the user to enter passwords securely
-read -sp "Enter password for 'geonode' PostgreSQL user: " GEONODE_PASSWORD
-echo
-read -sp "Enter password for 'geonode_data' PostgreSQL user: " GEONODE_DATA_PASSWORD
-echo
+
 
 # Update .env file with the database passwords
 echo "========================= Updating .env file with database passwords... ========================="
@@ -119,13 +119,6 @@ ALTER USER geonode WITH PASSWORD '$GEONODE_PASSWORD';
 ALTER USER geonode_data WITH PASSWORD '$GEONODE_DATA_PASSWORD';
 EOF
 
-# Restart Docker containers to apply changes
-echo "========================= Restarting Docker containers... ========================="
-docker compose --project-name geonode -f docker-compose-dev.yml -f .devcontainer/docker-compose.yml restart
-
-# Prompt the user to enter GeoServer admin password
-read -sp "Enter password for GeoServer 'admin' user: " GEOSERVER_ADMIN_PASSWORD
-echo
 
 # Wait for GeoServer to be ready
 echo "========================= Waiting for GeoServer to be ready... ========================="
@@ -151,9 +144,33 @@ docker cp users.xml geoserver4geonode:/geoserver_data/data/security/usergroup/de
 # Remove the local users.xml
 rm users.xml
 
-# Restart the GeoServer container to apply changes
-echo "========================= Restarting GeoServer container... ========================="
-docker restart geoserver4geonode
+# Restart Docker containers to apply changes
+echo "========================= Restarting Docker containers... ========================="
+docker compose --project-name geonode -f docker-compose-dev.yml -f .devcontainer/docker-compose.yml restart
+
+cd "$INSTALL_DIR"
+# Clone the MapStore2 client repository if not already present
+if [ ! -d "$INSTALL_DIR/geonode-mapstore-client" ]; then
+    echo "========================= Cloning MapStore2 client repository... ========================="
+    git clone --recursive https://github.com/GeoNode/geonode-mapstore-client.git geonode-mapstore-client-dev
+else
+    echo "========================= MapStore2 client repository already exists. ========================="
+fi
+
+# Compile MapStore Client
+echo "========================= Compile MapStore2 client... ========================="
+cd "$INSTALL_DIR/geonode-mapstore-client-dev/geonode_mapstore_client/client/"
+npm update
+npm install
+npm run compile
+
+cat > env.json <<EOF
+{
+    "DEV_SERVER_HOST": "localhost:8000",
+    "DEV_SERVER_HOST_PROTOCOL": "http"
+}
+EOF
+echo "========================= MapStore2 client Ready... ========================="
 
 # Install Visual Studio Code if not installed
 if ! command_exists code; then
@@ -176,4 +193,5 @@ rm -f get-docker.sh
 echo "========================= Setup complete. Run ========================="
 echo "newgrp docker"
 echo "sudo chown -R taufiq:taufiq /home/taufiq/Documents/geonode"
+echo "sudo chown -R taufiq:taufiq /home/taufiq/Documents/geonode-mapstore-client-dev"
 echo "sudo reboot"
