@@ -176,4 +176,4 @@ rm -f get-docker.sh
 echo "========================= Setup complete. Run ========================="
 echo "newgrp docker"
 echo "sudo chown -R taufiq:taufiq /home/taufiq/Documents/geonode"
-echo "RESTART OS"
+echo "sudo reboot"
