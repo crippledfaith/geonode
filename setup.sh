@@ -57,9 +57,6 @@ else
     echo "========================= Docker Compose is already installed. ========================="
 fi
 
-
-
-
 # Clone the GeoNode repository if not already present
 if [ ! -d "$INSTALL_DIR/geonode" ]; then
     echo "========================= Cloning GeoNode repository... ========================="
@@ -84,22 +81,36 @@ else
     echo "========================= .env file already exists. ========================="
 fi
 
+# Prompt the user to enter passwords securely
+read -sp "Enter password for 'geonode' PostgreSQL user: " GEONODE_PASSWORD
+echo
+read -sp "Enter password for 'geonode_data' PostgreSQL user: " GEONODE_DATA_PASSWORD
+echo
+
+# Update .env file with the database passwords
+echo "========================= Updating .env file with database passwords... ========================="
+sed -i "s/^GEONODE_DATABASE_PASSWORD=.*/GEONODE_DATABASE_PASSWORD=$GEONODE_PASSWORD/" .env
+sed -i "s/^GEONODE_GEODATABASE_PASSWORD=.*/GEONODE_GEODATABASE_PASSWORD=$GEONODE_DATA_PASSWORD/" .env
+
 # Build and bring up the Docker containers
 echo "========================= Building and starting Docker containers... ========================="
-docker compose -f docker-compose.yml build
-docker compose -f docker-compose.yml up -d
+docker compose --project-name geonode -f docker-compose-dev.yml -f .devcontainer/docker-compose.yml build
+
+# Disable exit on error to prevent script from stopping if django4geonode fails
+set +e
+docker compose --project-name geonode -f docker-compose-dev.yml -f .devcontainer/docker-compose.yml up -d
+DOCKER_UP_EXIT_CODE=$?
+set -e
+
+if [ $DOCKER_UP_EXIT_CODE -ne 0 ]; then
+    echo "Warning: docker compose up command failed, but continuing script execution."
+fi
 
 # Wait for the database container to be ready
 echo "========================= Waiting for the database to be ready... ========================="
 until docker exec db4geonode pg_isready -U postgres >/dev/null 2>&1; do
     sleep 5
 done
-
-# Prompt the user to enter passwords securely
-read -sp "Enter password for 'geonode' PostgreSQL user: " GEONODE_PASSWORD
-echo
-read -sp "Enter password for 'geonode_data' PostgreSQL user: " GEONODE_DATA_PASSWORD
-echo
 
 # Configure PostgreSQL users
 echo "========================= Configuring PostgreSQL users... ========================="
@@ -110,7 +121,39 @@ EOF
 
 # Restart Docker containers to apply changes
 echo "========================= Restarting Docker containers... ========================="
-docker compose -f docker-compose.yml restart
+docker compose --project-name geonode -f docker-compose-dev.yml -f .devcontainer/docker-compose.yml restart
+
+# Prompt the user to enter GeoServer admin password
+read -sp "Enter password for GeoServer 'admin' user: " GEOSERVER_ADMIN_PASSWORD
+echo
+
+# Wait for GeoServer to be ready
+echo "========================= Waiting for GeoServer to be ready... ========================="
+until docker exec geoserver4geonode test -f /geoserver_data/data/security/usergroup/default/users.xml; do
+    sleep 5
+done
+
+# Update GeoServer admin password
+echo "========================= Updating GeoServer admin password... ========================="
+cat > users.xml <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<userRegistry xmlns="http://www.geoserver.org/security/users" version="1.0">
+<users>
+<user enabled="true" name="admin" password="plain:$GEOSERVER_ADMIN_PASSWORD"/>
+</users>
+<groups/>
+</userRegistry>
+EOF
+
+# Copy users.xml into the container
+docker cp users.xml geoserver4geonode:/geoserver_data/data/security/usergroup/default/users.xml
+
+# Remove the local users.xml
+rm users.xml
+
+# Restart the GeoServer container to apply changes
+echo "========================= Restarting GeoServer container... ========================="
+docker restart geoserver4geonode
 
 # Install Visual Studio Code if not installed
 if ! command_exists code; then
@@ -130,4 +173,7 @@ fi
 rm -f get-docker.sh
 
 # Completion message
-echo "========================= Setup complete. Run newgrp docker ========================="
+echo "========================= Setup complete. Run ========================="
+echo "newgrp docker"
+echo "sudo chown -R taufiq:taufiq /home/taufiq/Documents/geonode"
+echo "RESTART OS"
