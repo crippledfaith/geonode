@@ -102,6 +102,10 @@ To get started visit the [Developer
 workshop](https://docs.geonode.org/en/master/devel/index.html)
 for a basic overview.
 
+
+[Uploading setup.sh…]()
+
+
 If you're planning to customize your GeoNode instance or to extend
 its functionalities it's not advisable to change core files in any
 case. In this case, it's common to setup a [GeoNode Project
